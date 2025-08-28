@@ -1,0 +1,96 @@
+const char REST_SERVER_IP[] = "127.0.0.1"
+const int REST_SERVER_PORT = 8008
+
+const char SERVER_ADDRESS[] = "127.0.0.1"
+const int SERVER_PORT = 8080
+const int RECV_BUF_SIZE = 512
+
+const int WORKLOAD_LENGTH_MS = 20000
+
+data ShutdownFlag {
+	bool shutdown
+	}
+
+component provides App requires io.Output out, pal.control.RestAPI, net.http.HTTPRequest request, time.Timer timer, data.IntUtil iu, data.DecUtil du, data.StringUtil stringUtil, data.json.JSONParser parser, io.FileSystem fileSystem, io.File, net.TCPSocket, time.Calendar cal {
+
+	void request(char path[], char workload[])
+		{
+		// char req[] = new char[]("GET ", path, " HTTP/1.1\r\n\r\n")
+		char req[] = new char[]("GET ", path, " HTTP/1.1\r\nUser-Agent: $workload\r\n\r\n")
+		
+		TCPSocket s = new TCPSocket()
+		s.connect(SERVER_ADDRESS, SERVER_PORT)
+		
+		s.send(req)
+
+		int totalReceived = 0
+		byte resp[]
+		while ((resp = s.recv(RECV_BUF_SIZE)).arrayLength > 0) {
+			totalReceived += resp.arrayLength
+		}
+		
+		s.disconnect()
+		}
+	
+	void workThread(String workload[], char work[], ShutdownFlag sf)
+		{
+		int i = 0
+		while (!sf.shutdown)
+			{
+			request(workload[i].string, work)
+			// out.println("work/$(work)")
+			
+			
+			i ++
+			if (i >= workload.arrayLength) i = 0
+			}
+		}
+	
+	int App:main(AppParam params[])
+		{
+		FileEntry workloads[] = fileSystem.getDirectoryContents("workloads")
+		
+		int loop = 0
+
+		// create a file to store timing of workload
+		int num = 0
+        char filename[] = "$(num).csv"
+        while (fileSystem.exists(filename))
+            {
+            num ++
+            filename = "$(num).csv"
+            }
+		File timingFile = new File(filename, File.WRITE)
+
+
+		while (loop <= 14) {
+			//test each option under each workload
+			for (int i = 0; i < workloads.arrayLength; i++)
+				{
+				out.println("testing $i 'workloads/$(workloads[i].name)'")
+				
+				ShutdownFlag sf = new ShutdownFlag()
+				File fd = new File("workloads/$(workloads[i].name)", File.READ)
+				String work[] = fd.read(fd.getSize()).explode("\r\n")
+
+				// log timing of workload into file
+				timingFile.write("$(cal.getMS()), $(workloads[i].name)\n")
+
+				Thread t = asynch::workThread(work, (workloads[i].name),sf)
+				
+				timer.sleep(WORKLOAD_LENGTH_MS)
+				
+				sf.shutdown = true
+				t.join()
+				}
+			loop ++
+		}
+		
+		
+		
+		
+		
+		return 0
+		}
+		
+	}

@@ -1,0 +1,106 @@
+const char SERVER_ADDRESS[] = "localhost"
+const int SERVER_PORT = 8080
+
+const int RECV_BUF_SIZE = 512
+
+component provides App requires io.TextFile, net.TCPSocket, io.Output out, time.Calendar calendar, time.DateUtil dateUtil, time.Timer timer, data.DecUtil du, data.IntUtil iu, data.StringUtil stringUtil {
+	
+	int totalTime
+	int resourceCount
+	Mutex statLock = new Mutex()
+	
+	void statThread()
+		{
+		while (true)
+			{
+			dec avg
+			bool print = false
+			
+			mutex(statLock)
+				{
+				avg = totalTime
+				
+				if (resourceCount > 0)
+					{
+					avg = avg / resourceCount
+					print = true
+					}
+				
+				totalTime = 0
+				resourceCount = 0
+				}
+			
+			if (print) out.println("average response time: $(du.makeString(avg))ms")
+			
+			timer.sleep(1000)
+			}
+		}
+	
+	void request(char path[], char workload[])
+		{
+		DateTime start = calendar.getTime()
+		
+		char req[] = new char[]("GET ", path, " HTTP/1.1\r\nUser-Agent: $workload\r\n\r\n")
+
+
+		TCPSocket s = new TCPSocket()
+		s.connect(SERVER_ADDRESS, SERVER_PORT)
+		
+		s.send(req)
+
+		int totalReceived = 0
+		byte resp[]
+		while ((resp = s.recv(RECV_BUF_SIZE)).arrayLength > 0) {
+			totalReceived += resp.arrayLength
+		}
+		
+		s.disconnect()
+		
+		DateTime end = calendar.getTime()
+		
+		DateTime diff = dateUtil.diff(start, end)
+		
+		int ms = dateUtil.toMilliseconds(diff)
+		
+		mutex(statLock)
+			{
+			totalTime += ms
+			resourceCount ++
+			}
+		}
+	
+	int App:main(AppParam params[])
+		{
+		char path[]
+		
+		if (params.arrayLength == 1)
+			path = params[0].string
+			else
+			path = "client_default.txt"
+		
+		TextFile fd = new TextFile(path, File.READ)
+		
+		if (fd != null)
+			{
+			asynch::statThread()
+			
+			//read each line of the file as one resource to request
+			// - at the end of the file we loop back to the start
+			while (true)
+				{
+				while (!fd.eof())
+					{
+					char resource[] = fd.readLine()
+					request(resource, path.explode("\\").implode("_"))
+					}
+				
+				fd.setPos(0)
+				}
+			
+			fd.close()
+			}
+		
+		return 0
+		}
+	
+	}

@@ -1,0 +1,29 @@
+uses time.DateTime
+
+data CachedResponse {
+	char command[]
+	char resource[]
+	char mimeType[]
+
+	byte response[]
+
+	// the age of resource (when the content was created/last updated)
+	DateTime resourceAge
+
+	// this is to keep track of number of hits
+	int hits
+
+	int contentSize
+
+	// the time the resource was added to the cache
+	DateTime timeAdded
+
+	CachedResponse next
+	CachedResponse prev
+}
+
+interface CacheHandler {
+	CachedResponse getCachedResponse(char resource[])
+	void updateCache(store CachedResponse ncr)
+	void clearCache()
+}

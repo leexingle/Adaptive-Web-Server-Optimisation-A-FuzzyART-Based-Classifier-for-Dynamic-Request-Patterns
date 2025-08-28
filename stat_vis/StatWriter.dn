@@ -1,0 +1,49 @@
+const char DEFAULT_SERVER_IP[] = "localhost"
+const int DEFAULT_SERVER_PORT = 8008
+
+const int ITERATION_COUNT = 3
+const int STAT_INTERVAL = 10000
+
+component provides App requires net.TCPSocket, pal.control.RestAPI, net.http.HTTPRequest request, time.Timer timer, data.IntUtil iu, io.File {
+	
+	int App:main(AppParam params[])
+		{
+		//connect to rest API of PAL and set config to index 0 (or any other index you like...)
+		char statFile[] = params[0].string
+		
+		RestAPI restAPI = new RestAPI(DEFAULT_SERVER_IP, DEFAULT_SERVER_PORT)
+		
+		String configs[] = restAPI.getConfigs()
+		
+		for (int i = 0; i < configs.arrayLength; i++)
+			{
+			restAPI.setConfig(configs[i].string)
+			
+			//write details of the configuration that we're using
+			File fd = new File(statFile, File.WRITE)
+			fd.setPos(fd.getSize())
+			fd.write("conf: ")
+			fd.write(configs[i].string)
+			fd.write("\n")
+			fd.close()
+			
+			for (int j = 0; j < ITERATION_COUNT; j++)
+				{
+				//get perception data
+				timer.sleep(STAT_INTERVAL)
+				
+				HTTPResponse r = request.get("http://$DEFAULT_SERVER_IP:$(iu.makeString(DEFAULT_SERVER_PORT))/meta/get_perception", null)
+				
+				char response[] = r.content
+				
+				fd = new File(statFile, File.WRITE)
+				fd.setPos(fd.getSize())
+				fd.write(response)
+				fd.write("\n")
+				fd.close()
+				}
+			}
+		
+		return 0
+		}
+	}

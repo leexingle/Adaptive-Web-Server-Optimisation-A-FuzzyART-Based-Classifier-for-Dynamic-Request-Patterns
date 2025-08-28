@@ -1,0 +1,64 @@
+component provides cgi.CGI requires io.Output out, data.IntUtil iu, os.Run run, util.ConfigFile, data.StringUtil stringUtil {
+
+	ConfigFile configFile
+
+	// delete the extension of the file
+	char[] getName(char fileName[]) {
+		char name[] = clone fileName
+
+		// delete extension
+		if (name[name.arrayLength-4] == ".")
+			name = new char[](stringUtil.subString(name, 0, name.arrayLength-4))
+
+		return name
+	}
+
+	char[] CGI:getRequest(CGIInfo cgiInfo) {
+
+		if (configFile == null) {
+			configFile = new ConfigFile("cgi.config")
+		}
+		
+		char newFileName[] = getName(cgiInfo.scriptFileName)
+
+		char get[] = new char[]("export SERVER_ADDR=", 	configFile.getValue("ip"), " ;",
+			"export SERVER_NAME=", 						configFile.getValue("server_name"), " ;",
+			"export REDIRECT_STATUS=",					cgiInfo.redirectStatus, " ;",
+			"export SCRIPT_FILENAME=",					configFile.getValue("base_dir"), cgiInfo.scriptFileName, " ;",
+			"export REQUEST_METHOD=",					cgiInfo.requestMethod, " ;",
+			"export QUERY_STRING='",					cgiInfo.queryString, "' ;",
+			"export BODY=\"",							cgiInfo.queryString, "\" ;",
+			"export GATEWAY_INTERFACE=CGI/1.1 ;",
+			"echo \$BODY | php-cgi | grep -v \"X-Powered-By: PHP/5.5.9-1ubuntu4.11\" | grep -v \"Content-type: text/html\" | awk \"NR != 1\" > ",
+			configFile.getValue("tmp_dir"), newFileName, ".html")
+
+		run.execute(get)
+
+		return new char[](configFile.getValue("tmp_dir"), newFileName, ".html")
+	}
+
+	char[] CGI:postRequest(CGIInfo cgiInfo) {
+
+		if (configFile == null) {
+			configFile = new ConfigFile("cgi.config")
+		}
+
+		char newFileName[] = getName(cgiInfo.scriptFileName)
+
+		char post[] = new char[]("export SERVER_ADDR=", configFile.getValue("ip"), " ;",
+			"export SERVER_NAME=", 						configFile.getValue("server_name"), " ;",
+			"export REDIRECT_STATUS=",					cgiInfo.redirectStatus, " ;",
+			"export SCRIPT_FILENAME=",					configFile.getValue("base_dir"), cgiInfo.scriptFileName, " ;",
+			"export REQUEST_METHOD=",					cgiInfo.requestMethod, " ;",
+			"export CONTENT_LENGTH=",					iu.makeString(cgiInfo.postData.arrayLength)," ;",
+			"export BODY=\"",							cgiInfo.postData, "\" ;",
+			"export GATEWAY_INTERFACE=CGI/1.1 ;",
+			"export CONTENT_TYPE=application/x-www-form-urlencoded ;",
+			"echo \$BODY | php-cgi | grep -v \"X-Powered-By: PHP/5.5.9-1ubuntu4.11\" | grep -v \"Content-type: text/html\" | awk \"NR != 1\" > ",
+			configFile.getValue("tmp_dir"), newFileName, ".html")
+
+		run.execute(post)
+
+		return new char[](configFile.getValue("tmp_dir"), newFileName, ".html")
+	}
+}

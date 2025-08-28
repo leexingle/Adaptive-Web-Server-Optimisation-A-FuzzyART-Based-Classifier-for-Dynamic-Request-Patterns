@@ -1,0 +1,266 @@
+const char server_name[] = "Dana Web Server v0.1"
+const char debugMSG[] = "[@HTTPHandlerCGZ]"
+
+data SocketState{
+	TCPSocket socket
+	bool socketWaiting
+	bool keepAlive
+	bool quit
+	}
+
+const int SLEEP_TIME = 100
+const int MAX_TIME = 5000
+
+component provides HTTPHandler requires io.Output out, data.IntUtil iu, io.FileSystem fileSystem, io.File, 
+	time.Timer t, cache.CacheHandler ch, time.Calendar ic, os.Run run, compression.Compression compress, 
+	cgi.CGI cgi, http.HTTPUtil httpUtil, pal.Perception perception {
+	
+	void startTimer(SocketState s, int sleep_time, int max_time) {
+		int time = 0
+
+		while (s.socketWaiting)
+			{
+			t.sleep(sleep_time)
+			time += sleep_time
+
+			if (time >= max_time)
+				{
+				s.socket.disconnect()
+				s.keepAlive = false
+				s.quit = true
+				}
+			}
+	}
+
+	void writeSubArray(byte toArray[], int start, byte fromArray[]) {
+		for (int i = 0; i < fromArray.arrayLength; i++) {
+			toArray[start+i] = fromArray[i]
+		}
+	}
+
+	HTTPMessage processRequest(SocketState s, int sleep_time, int num_req, HTTPMessage httpMessage) {
+		HTTPMessage returnMessage = new HTTPMessage()
+		returnMessage.resource = httpMessage.resource
+		char resource[] = httpUtil.normalisePath(httpMessage.resource)
+		char mt[] = httpUtil.getMIMEType(resource)
+
+		if (mt == "php") {
+			CGIInfo cgiInfo = new CGIInfo()
+
+			if (httpMessage.command == "GET") {
+				
+				cgiInfo.redirectStatus 	= "TRUE" // not sure about this
+				cgiInfo.scriptFileName 	= httpMessage.resource
+				cgiInfo.requestMethod 	= httpMessage.command
+				cgiInfo.queryString 	= httpMessage.queryString
+
+				resource = cgi.getRequest(cgiInfo)
+			} else if (httpMessage.command == "POST") {
+
+				cgiInfo.redirectStatus 	= "TRUE" // not sure about this
+				cgiInfo.scriptFileName 	= httpMessage.resource
+				cgiInfo.requestMethod 	= httpMessage.command
+				cgiInfo.postData 		= httpMessage.postData
+
+				resource = cgi.postRequest(cgiInfo)
+			}
+
+			mt = httpUtil.getMIMEType(resource)
+		}
+
+		if (httpUtil.exists(resource)) {
+			returnMessage.mimeType = mt
+			char newName[] = ""
+
+			newName = compress.compressResource(resource)
+			
+			if (newName.arrayLength != 0) {
+				resource = newName
+			}
+			
+			File fd = new File(resource, File.READ)
+
+			CachedResponse ncr = new CachedResponse()
+			ncr.command = httpMessage.command
+			ncr.resource = resource
+			ncr.resourceAge = fileSystem.getInfo(resource).modified
+			ncr.mimeType = mt
+
+			if (newName != "") {
+				ncr.response = new byte[](
+								"HTTP/1.1 200 OK\r\n",
+								"Server: $server_name\r\n",
+								"Content-Encoding: $(compress.algorithmName())\r\n",
+								"Content-Length: $(iu.makeString(fd.getSize()))\r\n",
+								"Keep-Alive: timeout=$(iu.makeString(sleep_time/1000)), max=$(iu.makeString(100-num_req))\r\n",
+								"Connection: Keep-Alive\r\n",
+								"Content-Type: $mt\r\n",
+								"\r\n")
+			} else {
+				ncr.response = new byte[](
+								"HTTP/1.1 200 OK\r\n",
+								"Server: $server_name\r\n",
+								"Content-Encoding: binary\r\n",
+								"Content-Length: $(iu.makeString(fd.getSize()))\r\n",
+								"Keep-Alive: timeout=$(iu.makeString(sleep_time/1000)), max=$(iu.makeString(100-num_req))\r\n",
+								"Connection: Keep-Alive\r\n",
+								"Content-Type: $mt\r\n",
+								"\r\n")
+			}
+
+			//out.println("RESOURCE $resource");
+
+			byte fbuf[]
+			byte fullResponse[] = new byte[fd.getSize() + ncr.response.arrayLength]
+			writeSubArray(fullResponse, 0, ncr.response)
+			int nextStart = ncr.response.arrayLength
+			
+			s.socket.send(ncr.response)
+			bool cacheSuccess = true
+			
+			int tl = 0
+			while ((fbuf = fd.read(10000)).arrayLength > 0) {
+				tl += fbuf.arrayLength
+				writeSubArray(fullResponse, nextStart, fbuf)
+				nextStart += fbuf.arrayLength
+				
+				if (s.socket.send(fbuf) != fbuf.arrayLength) {
+					cacheSuccess = false
+					break
+				}
+			}
+
+			returnMessage.contentLength = tl
+			returnMessage.status = 200
+			fd.close()
+			ncr.response = fullResponse
+			ncr.contentSize = tl
+
+			// TODO think about this
+			// if I could not cache content properly, what should I do?
+			// discard everything?
+			//out.println("add to cache as '$(ncr.resource)'")
+			if (cacheSuccess) ch.updateCache(ncr)
+			//out.println("[complete]");
+		} else {
+			s.socket.send("HTTP/1.1 404 Resource Not Found\r\n")
+			s.socket.send("Server: $server_name\r\n")
+			s.socket.send("Connection: close\r\n")
+			s.socket.send("\r\n")
+			//out.println("404!!!")
+			
+			returnMessage.mimeType = "404"
+			returnMessage.status = 404
+			return returnMessage
+		}
+
+		return returnMessage
+	}
+
+	void HTTPHandler:handleStream(TCPSocket s) {
+		int num_req = 0
+		char cacheVerifier[]
+		
+		SocketState ss = new SocketState(s)
+		ss.keepAlive = true
+
+		while (num_req < 100 && ss.keepAlive) {
+
+			ss.socketWaiting = true
+			Thread thread = asynch::startTimer(ss, SLEEP_TIME, MAX_TIME)
+			HTTPMessage httpMessage = httpUtil.readHTTPRequest(s)
+			ss.socketWaiting = false
+			if (ss.quit) return
+			thread.join()
+			char workload[] = httpMessage.userAgent
+			char resources[] = httpMessage.resource
+			
+			// client closed connection
+			if (httpMessage != null) {
+				DateTime dt = ic.getTime()
+				int sec = dt.second
+				int min = dt.minute
+				int msec = dt.millisecond
+
+				if (httpMessage.connection == "keep-alive\r") {
+					ss.keepAlive = true
+				} else {
+					ss.keepAlive = false
+				}
+	
+				/* verify whether content's been cached */
+				CachedResponse cr
+
+				cacheVerifier = new char[](httpUtil.normalisePath(resources), compress.getExtension())
+				//out.println("check cache for '$(cacheVerifier)'")
+				cr = ch.getCachedResponse(cacheVerifier)
+
+				// if the compressed file is not there, see if the file is not compressed
+				if (cr == null) {
+					cr = ch.getCachedResponse(httpUtil.normalisePath(resources))	
+				}
+
+				if (cr != null && fileSystem.getInfo(cr.resource).modified == cr.resourceAge) {
+					//out.println("using cached response")
+					s.send(cr.response)
+
+					httpMessage = new HTTPMessage()
+					httpMessage.mimeType = cr.mimeType
+					httpMessage.contentLength = cr.contentSize
+
+				} else if ((httpMessage.command == "GET") ||
+					(httpMessage.command == "POST")) {
+
+					httpMessage = processRequest(ss, MAX_TIME, num_req, httpMessage)
+					if (httpMessage.status != 200) {
+						ss.keepAlive = false
+					}
+
+				} else {
+					// TODO: create a send method that will take the info from a variable 
+					// and write it to the socket
+
+					s.send("HTTP/1.1 501 Not Implemented\r\n")
+					s.send("Server: $server_name\r\n")
+					s.send("Connection: close\r\n")
+					s.send("\r\n")
+
+					httpMessage.mimeType = "501"
+					ss.keepAlive = false
+				}
+
+				//TODO create a function on CacheHandler to decrease or increase users counting
+				//if (cr != null) cr.users--;// not sure what "users" mean
+
+				// if it takes more than a minute this will not work
+				dt = ic.getTime()
+
+				int result = 0
+
+				if (dt.second > sec) {
+					result = (1000 - msec) + dt.millisecond
+					result += ((dt.second - sec) - 1) * 1000
+				} else if (dt.second == sec) {
+					result = dt.millisecond - msec
+				} else if (dt.second < sec) {
+					result = (1000 - msec) + dt.millisecond
+					result += (((60 - sec) + dt.second) - 1) * 1000
+				}
+
+				//out.println("$(debugMSG) eventAdded!")
+				perception.addMetric("response_time", result, false)
+				perception.addEvent(httpUtil.getEvent(httpMessage.mimeType), httpMessage.contentLength)
+				perception.addEvent(workload, 1)
+				perception.addTrace(resources)
+				// perception.addTrace("$(ic.getMS()),$(resources),$(httpUtil.getEvent(httpMessage.mimeType))")
+
+			} else {
+				break
+			}
+
+			num_req++
+		}
+
+		s.disconnect()
+	}
+}

@@ -1,0 +1,5 @@
+{
+defaultLinks:	[
+				{interface: "HTTPHandler", component: "HTTPHandler"}
+				]
+}

@@ -1,0 +1,5 @@
+uses net.TCPSocket
+
+interface RequestHandler {
+	void handleRequest(store TCPSocket s)
+}

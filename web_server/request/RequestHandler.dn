@@ -1,0 +1,39 @@
+data ThreadList {
+	Thread t
+	int id
+	ThreadList next
+}
+
+const char debugMSG[] = "[@RequestHandler]"
+
+component provides request.RequestHandler requires io.Output out, data.IntUtil iu, 
+	http.HTTPHandler httpHandler, time.Timer t, time.Calendar ic {
+
+	void processStream(TCPSocket s) {
+		DateTime dt = ic.getTime()
+		int sec = dt.second
+		int min = dt.minute
+		int msec = dt.millisecond
+
+		httpHandler.handleStream(s)
+
+		// if it takes more than a minute this will not work
+		dt = ic.getTime()
+
+		int result = 0
+
+		if (dt.second > sec) {
+			result = (1000 - msec) + dt.millisecond
+			result += ((dt.second - sec) - 1) * 1000
+		} else if (dt.second == sec) {
+			result = dt.millisecond - msec
+		} else if (dt.second < sec) {
+			result = (1000 - msec) + dt.millisecond
+			result += (((60 - sec) + dt.second) - 1) * 1000
+		}
+	}
+	
+	void RequestHandler:handleRequest(store TCPSocket s) {
+		asynch::processStream(s)
+	}
+}

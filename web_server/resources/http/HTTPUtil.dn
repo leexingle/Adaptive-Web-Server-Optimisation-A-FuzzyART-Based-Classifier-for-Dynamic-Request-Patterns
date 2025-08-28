@@ -1,0 +1,18 @@
+uses http.HTTPHandler
+
+interface HTTPUtil {
+	// running web server directly
+	// const char htdocs[] = "htdocs";
+	// running web server from meta_system
+	const char htdocs[] = "../web_server/htdocs"
+
+	HTTPMessage readHTTPRequest(TCPSocket s)
+	HTTPMessage parseHTTPRequest(char buf[])
+	char[] normalisePath(char resource[])
+	char[] getMIMEType(char resource[])
+
+	bool exists(char resource[])
+
+	// is it supposed to be here?
+	char[] getEvent(char mimeType[])
+}

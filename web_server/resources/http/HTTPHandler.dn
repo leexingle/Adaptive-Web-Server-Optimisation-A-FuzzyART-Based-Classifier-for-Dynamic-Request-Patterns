@@ -1,0 +1,30 @@
+uses net.TCPSocket
+
+data CacheMessage {
+	int maxAge
+	char ifNoneMatch[]
+	char ifModifiedSince[]
+}
+
+data HTTPMessage {
+	char command[]
+	char resource[]
+	char version[]
+	char connection[]
+	char accept[]
+	char userAgent[]
+	char acceptEncoding[]
+	char acceptLanguage[]
+	char queryString[]
+	char postData[]
+	char mimeType[]
+
+	int status
+	int contentLength //in bytes
+
+	CacheMessage cacheMessage
+}
+
+interface HTTPHandler {
+	void handleStream(TCPSocket s)
+}

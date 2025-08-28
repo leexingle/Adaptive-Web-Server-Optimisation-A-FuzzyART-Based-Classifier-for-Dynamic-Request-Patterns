@@ -1,0 +1,126 @@
+const char REST_SERVER_IP[] = "127.0.0.1"
+const int REST_SERVER_PORT = 8008
+
+const char SERVER_ADDRESS[] = "127.0.0.1"
+const int SERVER_PORT = 8080
+const int RECV_BUF_SIZE = 512
+
+const int OBSERVATION_WINDOW_MS = 3000
+
+data ShutdownFlag {
+	bool shutdown
+	}
+
+component provides App requires io.Output out, pal.control.RestAPI, time.Timer timer, data.IntUtil iu, data.DecUtil du, data.StringUtil stringUtil, io.FileSystem fileSystem, io.File, net.TCPSocket {
+
+	void request(char path[])
+		{
+		char req[] = new char[]("GET ", path, " HTTP/1.1\r\n\r\n")
+		
+		TCPSocket s = new TCPSocket()
+		s.connect(SERVER_ADDRESS, SERVER_PORT)
+		
+		s.send(req)
+
+		int totalReceived = 0
+		byte resp[]
+		while ((resp = s.recv(RECV_BUF_SIZE)).arrayLength > 0) {
+			totalReceived += resp.arrayLength
+		}
+		
+		s.disconnect()
+		}
+	
+	void workThread(String workload[], ShutdownFlag sf)
+		{
+		int i = 0
+		while (!sf.shutdown)
+			{
+			request(workload[i].string)
+			
+			i ++
+			if (i >= workload.arrayLength) i = 0
+			}
+		}
+	
+	char[] getComponentForStart(char start[], char config[])
+		{
+		String parts[] = config.rsplit("|")
+		String comps[] = parts[0].string.explode(",")
+		for (int i = 0; i < comps.arrayLength; i++)
+			{
+			if (comps[i].string.find(start) != StringUtil.NOT_FOUND)
+				return comps[i].string
+			}
+		
+		return null
+		}
+	
+	int App:main(AppParam params[])
+		{
+		//connect to rest API of PAL and set config to index 0 (or any other index you like...)
+		RestAPI restAPI = new RestAPI(REST_SERVER_IP, REST_SERVER_PORT)
+		
+		String configs[] = restAPI.getConfigs()
+		
+		FileEntry workloads[] = fileSystem.getDirectoryContents("workloads")
+
+		for (int i = 0; i < configs.arrayLength; i++)
+			{
+			char shortName[] = getComponentForStart("HTTPHandler", configs[i].string)
+			out.println("config $i: '$shortName'")
+			}
+		
+		//test each option under each workload
+		for (int i = 0; i < workloads.arrayLength; i++)
+			{
+			if (fileSystem.getInfo("workloads/$(workloads[i].name)").type == FileInfo.TYPE_FILE)
+				{
+				out.println("testing 'workloads/$(workloads[i].name)'")
+				
+				ShutdownFlag sf = new ShutdownFlag()
+				File fd = new File("workloads/$(workloads[i].name)", File.READ)
+				String work[] = fd.read(fd.getSize()).explode("\r\n")
+				Thread t = asynch::workThread(work, sf)
+				
+				dec scores[] = new dec[configs.arrayLength]
+				
+				dec best = 10000.0
+				int bestIndex = 0
+				
+				for (int j = 0; j < configs.arrayLength; j++)
+					{
+					restAPI.setConfig(configs[j].string)
+					restAPI.getPerception()
+					timer.sleep(OBSERVATION_WINDOW_MS)
+					PerceptionData pdata = restAPI.getPerception()
+					
+					dec vk = pdata.metrics[0].totalValue
+					dec vt = pdata.metrics[0].totalCount
+					dec avg = vk / vt
+					scores[j] = avg
+					
+					if (avg < best)
+						{
+						best = avg
+						bestIndex = j
+						}
+					}
+				
+				out.println("scores (lower is better, * is best):")
+				for (int j = 0; j < scores.arrayLength; j++)
+					{
+					if (j == bestIndex)
+						out.println(" - option $j: $(scores[j]) *")
+						else
+						out.println(" - option $j: $(scores[j])")
+					}
+				
+				sf.shutdown = true
+				t.join()
+				}
+			}
+		
+		return 0
+		}
+	}

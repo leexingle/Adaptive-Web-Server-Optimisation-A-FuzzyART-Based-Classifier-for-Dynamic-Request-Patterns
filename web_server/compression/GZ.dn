@@ -1,0 +1,28 @@
+const char debugMSG[] = "[@GZIP]"
+
+component provides compression.Compression requires io.Output out, data.IntUtil iu, io.File, compress.Compressor:gzip zip {
+
+	char[] Compression:compressResource(char resource[]) {
+		//out.println("$(debugMSG) Compressing...");
+		
+		File ifd = new File(resource, File.READ)
+		File ofd = new File("$(resource).gz", File.CREATE)
+			
+		zip.compress(ifd, ofd, resource)
+		
+		ifd.close()
+		ofd.close()
+		
+		return "$(resource).gz"
+	}
+
+	char[] Compression:algorithmName() {
+		return "gzip"
+	}
+
+	char[] Compression:getExtension() {
+		return ".gz"
+	}
+
+}
+

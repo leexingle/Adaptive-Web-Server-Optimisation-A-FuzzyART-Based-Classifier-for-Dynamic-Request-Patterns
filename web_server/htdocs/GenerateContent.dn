@@ -1,0 +1,28 @@
+component provides App requires io.Output out, data.StringUtil stringUtil, data.IntUtil iu, os.SystemInfo info, os.Run run, io.FileSystem fileSystem {
+	
+	void copyFileUp(char path[], int count)
+		{
+		char name[] = path.rsplit("/")[1].string
+		String parts[] = name.explode(".")
+		
+		for (int i = 0; i < count; i++)
+			{
+			fileSystem.copy(path, "$(parts[0].string)$(iu.makeString(i+1)).$(parts[1].string)")
+			}
+		
+		fileSystem.copy(path, name)
+		}
+	
+	int App:main(AppParam params[])
+		{
+		FileEntry files[] = fileSystem.getDirectoryContents("base_content")
+		
+		for (int i = 0; i < files.arrayLength; i++)
+			{
+			copyFileUp("base_content/$(files[i].name)", 40)
+			}
+		
+		return 0
+		}
+	
+	}

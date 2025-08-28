@@ -1,0 +1,13 @@
+data CGIInfo {
+	char redirectStatus[]
+	char scriptFileName[]
+	char requestMethod[]
+	char queryString[]
+	char postData[]
+}
+
+interface CGI {
+	// both function returns the address of the resouce (/tmp/resource.html)
+	char[] getRequest(CGIInfo cgiInfo)
+	char[] postRequest(CGIInfo cgiInfo)
+}

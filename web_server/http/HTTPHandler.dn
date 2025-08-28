@@ -1,0 +1,191 @@
+const char server_name[] = "Dana Web Server v0.1"
+const char debugMSG[] = "[@HTTPHandler]"
+
+data SocketState{
+	TCPSocket socket
+	bool socketWaiting
+	bool keepAlive
+	bool quit
+	}
+
+const int SLEEP_TIME = 100
+const int MAX_TIME = 5000
+
+component provides HTTPHandler requires io.Output out, data.IntUtil iu, io.FileSystem fileSystem, io.File,
+	time.Timer t, time.Calendar ic, cgi.CGI cgi, http.HTTPUtil httpUtil, pal.Perception perception {
+	
+	void startTimer(SocketState s, int sleep_time, int max_time) {
+		int time = 0
+
+		while (s.socketWaiting)
+			{
+			t.sleep(sleep_time)
+			time += sleep_time
+
+			if (time >= max_time)
+				{
+				s.socket.disconnect()
+				s.keepAlive = false
+				s.quit = true
+				}
+			}
+	}
+
+	HTTPMessage processRequest(SocketState s, int sleep_time, int num_req, HTTPMessage httpMessage) {
+		HTTPMessage returnMessage = new HTTPMessage()
+		returnMessage.resource = httpMessage.resource
+		
+		char resource[] = httpUtil.normalisePath(httpMessage.resource)
+		char mt[] = httpUtil.getMIMEType(resource)
+		
+		if (mt == "php") {
+			CGIInfo cgiInfo = new CGIInfo()
+
+			if (httpMessage.command == "GET") {
+				
+				cgiInfo.redirectStatus 	= "TRUE"// not sure about this
+				cgiInfo.scriptFileName 	= httpMessage.resource
+				cgiInfo.requestMethod 	= httpMessage.command
+				cgiInfo.queryString 	= httpMessage.queryString
+
+				resource = cgi.getRequest(cgiInfo)
+			} else if (httpMessage.command == "POST") {
+
+				cgiInfo.redirectStatus 	= "TRUE" // not sure about this
+				cgiInfo.scriptFileName 	= httpMessage.resource
+				cgiInfo.requestMethod 	= httpMessage.command
+				cgiInfo.postData 		= httpMessage.postData
+
+				resource = cgi.postRequest(cgiInfo)
+			}
+
+			mt = httpUtil.getMIMEType(resource)
+		}
+
+		if (httpUtil.exists(resource)) {
+			
+			returnMessage.mimeType = mt
+			File fd = new File(resource, File.READ)
+			
+			s.socket.send("HTTP/1.1 200 OK\r\n")
+			s.socket.send("Server: $server_name\r\n")
+			s.socket.send("Content-Encoding: binary\r\n")
+			s.socket.send("Content-Length: $(iu.makeString(fd.getSize()))\r\n")
+			s.socket.send("Keep-Alive: timeout=$(iu.makeString(sleep_time/1000)), max=$(iu.makeString(100-num_req))\r\n")
+			s.socket.send("Connection: Keep-Alive\r\n")
+			s.socket.send("Content-Type: $mt\r\n")
+			s.socket.send("\r\n")
+			
+			byte fbuf[]
+			int tl = 0
+			while ((fbuf = fd.read(2048)).arrayLength > 0) {
+				tl += fbuf.arrayLength
+				s.socket.send(fbuf)
+			}
+
+			returnMessage.contentLength = tl
+			returnMessage.status = 200
+
+			fd.close()
+		} else {
+			
+			s.socket.send("HTTP/1.1 404 Resource Not Found\r\n")
+			s.socket.send("Server: $server_name\r\n")
+			s.socket.send("Connection: close\r\n")
+			s.socket.send("\r\n")
+			//out.println("404!!!")
+			
+			returnMessage.mimeType = "404"
+			returnMessage.status = 404
+			return returnMessage
+		}
+
+		return returnMessage
+	}
+
+	void HTTPHandler:handleStream(TCPSocket s) {
+		int num_req = 0
+		Event e
+		
+		SocketState ss = new SocketState(s)
+		ss.keepAlive = true
+
+		while (num_req < 100 && ss.keepAlive) {
+			
+			ss.socketWaiting = true
+			Thread thread = asynch::startTimer(ss, SLEEP_TIME, MAX_TIME)
+			HTTPMessage httpMessage = httpUtil.readHTTPRequest(s)
+			ss.socketWaiting = false
+			if (ss.quit) return
+			thread.join()
+			char workload[] = httpMessage.userAgent
+			char resources[] = httpMessage.resource
+		
+			// client closed connection
+			if (httpMessage != null) {
+			
+				DateTime dt = ic.getTime()
+				int sec = dt.second
+				int min = dt.minute
+				int msec = dt.millisecond
+
+				if (httpMessage.connection == "keep-alive\r") {
+					ss.keepAlive = true
+				} else {
+					ss.keepAlive = false
+				}
+				
+				if ((httpMessage.command == "GET") ||
+					 (httpMessage.command == "POST")) {
+
+					httpMessage = processRequest(ss, MAX_TIME, num_req, httpMessage)
+					if (httpMessage.status != 200) {
+						ss.keepAlive = false
+					}
+
+				} else {
+
+					s.send("HTTP/1.1 501 Not Implemented\r\n")
+					s.send("Server: $server_name\r\n")
+					s.send("Connection: close\r\n")
+					s.send("\r\n")
+
+					httpMessage.mimeType = "501"
+					
+					ss.keepAlive = false
+				}
+
+				// if it takes more than a minute this will not work
+				dt = ic.getTime()
+
+				int result = 0
+
+				if (dt.second > sec) {
+					result = (1000 - msec) + dt.millisecond
+					result += ((dt.second - sec) - 1) * 1000
+				} else if (dt.second == sec) {
+					result = dt.millisecond - msec
+				} else if (dt.second < sec) {
+					result = (1000 - msec) + dt.millisecond
+					result += (((60 - sec) + dt.second) - 1) * 1000
+				}
+
+				//out.println("$(debugMSG) eventAdded!");
+				perception.addMetric("response_time", result, false)
+				perception.addEvent(httpUtil.getEvent(httpMessage.mimeType), httpMessage.contentLength)
+				perception.addEvent(workload, 1)
+				perception.addTrace(resources)
+				// perception.addTrace("$(ic.getMS()),$(resources),$(httpUtil.getEvent(httpMessage.mimeType))")
+
+				// out.println("mimeType - $(httpUtil.getEvent(httpMessage.mimeType)), contentLength - $(httpMessage.contentLength)")
+			} else {
+				break
+			}
+
+			num_req++
+		}
+
+		s.disconnect()
+	}
+
+}

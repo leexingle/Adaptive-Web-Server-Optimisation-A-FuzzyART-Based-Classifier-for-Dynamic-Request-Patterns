@@ -1,0 +1,122 @@
+const char DEFAULT_SERVER_IP[] = "127.0.0.1"
+const int DEFAULT_SERVER_PORT = 8008
+
+const int OBSERVATION_WINDOW = 1000 //ms
+
+component provides App requires io.Output out, pal.control.RestAPI, ml.rl.RL, time.Timer timer, data.IntUtil iu, data.DecUtil du {
+	
+	dec normalisation_low = 0.0
+	dec normalisation_high = 100.0
+	
+	dec scaleCost(dec cost, dec lowCost, dec highCost)
+		{
+		//here we lock the cost between the given range, where anything falling outside of that range is just set of highCost
+		// - we then do 1 - cost to convert to reward
+		
+		//first truncate at high/low cost
+		if (cost > highCost)
+			{
+			cost = highCost
+			}
+			else if (cost < lowCost)
+			{
+			cost = lowCost
+			}
+		
+		//shift negative low
+		if (lowCost < 0.0)
+			{
+			dec mod = lowCost / -1.0
+			cost += mod
+			lowCost += mod
+			highCost += mod
+			}
+		
+		//now convert the range into 0.0 -> 1.0
+		dec scaledCost = cost / highCost
+		
+		return scaledCost
+		}
+	
+	dec costToReward(dec cost)
+		{
+		//invert to get reward
+		return 1.0 - cost
+		}
+	
+	int App:main(AppParam params[])
+		{
+		//connect to rest API of PAL and set config to index 0 (or any other index you like...)
+		RestAPI restAPI = new RestAPI(DEFAULT_SERVER_IP, DEFAULT_SERVER_PORT)
+		
+		String configs[] = restAPI.getConfigs()
+		
+		RL learning = new RL()
+		learning.setExplorationPenalty(1.0)
+		learning.setActions(configs)
+		
+		while (true)
+			{
+			//get the learner algorithm's next action, and set that action (composition) in PAL
+			dec reward = 0.0
+			
+			int ndx = learning.getAction()
+			
+			out.println("choosing action $ndx") // $(configs[ndx].string)")
+			
+			restAPI.setConfig(configs[ndx].string)
+			
+			//wait for some time...
+			timer.sleep(OBSERVATION_WINDOW)
+			
+			//get the perception data from PAL
+			PerceptionData pdata = restAPI.getPerception()
+			
+			if (pdata.metrics.arrayLength != 0)//key response time and value
+				{
+				dec vk = pdata.metrics[0].totalValue
+				dec vt = pdata.metrics[0].totalCount
+				
+				dec avg = vk / vt
+				
+				reward = avg
+				}
+			
+			for (int i = 0; i < pdata.events.arrayLength; i++)//key:name value: accumulate and how many time (feature)
+				{
+				if (i == 0) out.println(" - environment characteristics:")
+				
+				dec vk = pdata.events[i].totalValue
+				dec vt = pdata.events[i].totalCount
+				
+				dec avg = vk / vt
+				
+				out.println("   - $(pdata.events[i].name) $avg")
+				}
+			
+			for (int i = 0; i < pdata.trace.arrayLength; i++)//single string per request colloection
+				{
+				if (i == 0) out.println(" - trace data:")
+				out.println("   - $(pdata.trace[i].content)")
+				}
+			
+			//normalise the reward (which is actually currently "cost", since lower is better)
+			dec normalised = scaleCost(reward, normalisation_low, normalisation_high)
+			
+			//convert what is actually "cost" into reward, where higher is better (ML algorithms assume reward as input, not cost)
+			dec finalReward = costToReward(normalised)
+			
+			out.println(" - calculated reward:")
+			out.println("    - original $reward")
+			out.println("    - normalised $normalised")
+			out.println("    - reward $finalReward")
+			
+			//send reward data for this action to the learning algorithm
+			learning.setReward(finalReward)
+			}
+		
+			// get output from model, if same RL continue use the same, if not create new, or use back the rl created
+			// create new RL assign with class output
+		return 0
+		}
+	}

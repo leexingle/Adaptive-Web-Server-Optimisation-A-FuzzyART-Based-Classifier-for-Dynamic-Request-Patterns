@@ -1,0 +1,63 @@
+2 - classification 0.3v, norm 100, 5 loop, 5 work, 20 sec
+3 - classification 0.5v, norm 100, 5 loop, 5 work, 20 sec/
+4 - classification 0.5v, norm 1500, 5 loop, 5 work, 20 sec
+5 - classification 0.5v, norm log1500, 5 loop, 5 work, 20 sec
+6 - classification 0.5v, norm 100, 10 loop, 5 work, 20 sec
+7 - norm 100, 10 loop, 5 work, 20 sec
+8 - norm 100, 10 loop, 5 work, 20 sec/
+9 - classification 0.5, norm 100, 10 loop, 5 work, 20 sec/
+10- classification 0.5, norm 100, 10 loop, 5 work, 10 sec
+11 - classification 0.5, norm 100, 10 loop, 12 work, 20 sec/
+12 - norm 100, 10 loop, 5 work, 20 sec
+13 - classification 0.5, dynamic norm (max min response time)each class, 10 loop, 5 work, 20 sec
+14 - classification 0.5, dynamic norm (5th quartile, 20 recent)each class, 10 loop, 5 work, 20 sec
+15 - classification 0.5, dynamic norm (5th quartile, 20 recent)each class, 10 loop, 5 work, 20 sec/
+16 - classification 0.5, dynamic norm (5th quartile, 10 recent)each class, 10 loop, 5 work, 20 sec
+17 - classification 0.5, dynamic norm (5th quartile, 10 recent)each class, 10 loop, 5 work, 20 sec/
+18 - classification 0.5, dynamic norm (5th quartile, 10 recent)each class, 10 loop, 5 work, 20 sec
+19 - classification 0.5, dynamic norm (5th quartile, 10 recent)each class, 10 loop, 5 work, 20 sec
+20 - classification 0.5, avg more than 100 only 100-1500, 10 loop, 5 work, 20 sec x
+21 - classification 0.5,count more than 5 in 10 that over 100 change to 100-1500, 10 loop, 5 work, 20 sec
+22 - classification 0.5,count more than 5 in 20 that over 100 change to 100-1500, 10 loop, 5 work, 20 sec
+23 - classification 0.5,count more than 5 in 20 that over 100 change to 100-1500, 10 loop, 5 work, 20 sec
+24 - classification 0.5,count more than 5 in 20 that over 100 change to 100-1500, 10 loop, 5 work, 20 sec
+25 - classification 0.5,avg more than 50 in 20 change to 100-1500, 10 loop, 5 work, 20 sec
+26 - classification 0.5,np.percentile(recent_times, 25) > 50 to 0-1500, 10 loop, 5 work, 20 sec
+27 - classification 0.5,np.percentile(recent_times, 25) > 50 to 0-1500, 10 loop, 5 work, 20 sec/
+28 - classification 0.5,np.percentile(recent_times, 25) > 50 to 0-1500, 15 loop, 5 work, 20 sec
+29 - classification 0.5,np.percentile(recent_times, 25) > 50 to 0-1500, 10 loop, 5 work, 20 sec
+
+
+start from here below, all without classification 
+30 - var_med_img only 15 loop, 0-100
+31 - var_med_img only 15 loop, 0-60
+32 - var_med_img only 30 loop, 0-60/
+33 - var_med_img only 30 loop, 0-100
+34 - var_med_img only 50 loop, 0-100
+35 - var_med_img only 75 loop, 0-100
+36 - var_med_img only 50 loop, 0-100/ 80%
+37 - var_med_img only 100 loop, 0-100/ 90%
+
+38 - original sequence 15 loop
+
+39 - 15 loop
+testing 0 'workloads/1client_big_img.txt'
+testing 1 'workloads/2client_var_big_img.txt'
+testing 2 'workloads/3client_small_txt_1.txt'
+testing 3 'workloads/4client_med_img_2.txt'
+testing 4 'workloads/5client_var_med_img.txt'
+
+40 - 10 loop
+testing 0 'workloads/1client_big_img.txt'
+testing 1 'workloads/2client_var_big_img.txt'
+testing 2 'workloads/3client_small_txt_1.txt'
+testing 3 'workloads/4client_med_img_2.txt'
+testing 4 'workloads/5client_var_med_img.txt'
+
+41 - 10 loop
+testing 0 'workloads/1client_var_big_img.txt'
+testing 1 'workloads/2client_med_img_2.txt'
+testing 2 'workloads/3client_small_txt_1.txt'
+testing 3 'workloads/4client_big_img.txt'
+testing 4 'workloads/5client_var_med_img.txt'
+

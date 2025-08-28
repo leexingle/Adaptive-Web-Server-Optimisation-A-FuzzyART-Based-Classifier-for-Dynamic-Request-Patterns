@@ -1,0 +1,281 @@
+const char debugMSG[] = "[@HTTPUtil]"
+
+component provides HTTPUtil requires io.Output out, data.IntUtil iu, io.FileSystem fileSystem, data.StringUtil stringUtil {
+	
+	HTTPMessage HTTPUtil:readHTTPRequest(TCPSocket s) {
+		char buf[]
+		int len
+		char command[]
+		len = 0
+		HTTPMessage httpMessage = null
+		
+		// reading resquest from socket
+		while ((buf = s.recv(1)).arrayLength > 0) {
+
+			//TODO: this is not very efficient
+			command = new char[](command, buf)
+			len++
+
+			//stop condition
+			if (len >= 4) {
+				if ((command[len-4] == "\r") && (command[len-3] == "\n") && 
+					(command[len-2] == "\r") && (command[len-1] == "\n")) {
+
+					httpMessage = parseHTTPRequest(command)
+
+					if (httpMessage.command == "POST") {
+						httpMessage.postData = new char[](s.recv(httpMessage.contentLength))
+					}
+
+					break
+				}
+			}
+
+		}
+
+		if (buf != "\r" && buf != "\n") {
+			s.disconnect()
+			return null
+		}
+
+		return httpMessage
+	}
+
+	// TODO: if there is a folder inside of that folder...
+	// need to htdocs/something/other.html
+	char[] HTTPUtil:normalisePath(char resource[]) {
+		resource = new char[](HTTPUtil.htdocs, resource)
+
+		// this will work when requesting "/" as 
+		if (fileSystem.getInfo(resource).type == FileInfo.TYPE_DIR) {
+			//try appending known "index" files
+			char test[]
+
+			if (resource[resource.arrayLength-1] == "/") {
+				test = new char[](resource, "index.html")
+			} else {
+				test = new char[](resource, "/index.html")
+			}
+			
+			if (fileSystem.exists(test))
+				return test
+		}
+		
+		return resource
+	}
+
+	char[] getFileFormat(char resource[]) {
+		char fileFormat[] = ""
+
+		int i = resource.arrayLength-1
+		while (i > 0 && resource[i] != ".") { 
+			i--
+		}
+
+		if (i > 0) {
+			fileFormat = stringUtil.subString(resource, (i+1), (resource.arrayLength-i-1))
+		}
+
+		return fileFormat
+	}
+
+	char[] HTTPUtil:getEvent(char mimeType[]) {
+		char ev[]
+		int i = 0
+
+		if ((mimeType == "application/x-javascript") ||
+			(mimeType == "application/javascript")) {
+			return "text"
+		}
+
+		while (i < mimeType.arrayLength) {
+			if (mimeType[i] == "/") {
+				break
+			}
+
+			i++
+		}
+
+		if (i < mimeType.arrayLength) {
+			ev = stringUtil.subString(mimeType, 0, i)
+		} else {
+			ev = mimeType
+		}
+		
+		return ev
+	}
+
+	// TODO finish the MIME Type
+	char[] HTTPUtil:getMIMEType(char resource[]) {
+		//NOTE: return proper MIME types
+		char fileFormat[] = getFileFormat(resource)
+
+		if (fileFormat == "html" || fileFormat == "htm") {
+			return "text/html"
+		}
+
+		if (fileFormat == "jpg") {
+			return "image/jpeg"
+		}
+
+		if (fileFormat == "png") {
+			return "image/png"
+		}
+
+		if (fileFormat == "gif") {
+			return "image/gif"
+		}
+
+		if (fileFormat == "min.js" || fileFormat == "js") {
+			return "application/x-javascript"
+		}
+
+		if (fileFormat == "css" || fileFormat == "min.css") {
+			return "text/css"
+		}
+
+		if (fileFormat == "pdf") {
+			return "application/pdf"
+		}
+
+		if (fileFormat == "mpg") {
+			return "video/mpeg"
+		}
+
+		if (fileFormat == "php") {
+			return fileFormat
+		}
+
+		return "text/plain"
+	}
+
+	// entire_line true means it will copy the entire line, including the spaces, until it finds \n
+	// entire_line false means it will copy the line up to a space or \n (whatever comes first)
+	char[] getParam(char buf[], int i, bool entire_line) {
+		char result[]
+		
+		int si = 0
+		while (i > 0) {
+			//find the next space character
+			while (si < buf.arrayLength && buf[si] != " " && buf[si] != "\n")
+				si++
+			
+			if (si == buf.arrayLength)
+				return null
+		
+			si++
+			i--
+		}
+		
+		int ei = si
+		//find the *next* space character and return a bounded pointer to this section
+		if (entire_line) {
+			while (ei < buf.arrayLength && buf[ei] != "\n") {
+				ei++
+				i++
+			}
+		} else {
+			while (ei < buf.arrayLength && buf[ei] != " " && buf[ei] != "\n") {
+				ei++
+				i++
+			}
+		}
+		
+		return stringUtil.subString(buf, si, i)
+	}
+
+	char[] getQueryString(char resource[]) {
+		char str[] = clone resource
+		int i = 0
+
+		while ((i < str.arrayLength) && (str[i] != "?")) { i++ }
+		return new char[](stringUtil.subString(str, i, (str.arrayLength-i) ))
+	}
+
+	char[] getResource(char resource[]) {
+		char str[] = clone resource
+		int i = 0
+
+		while ((i < str.arrayLength) && (str[i] != "?")) { i++ }
+		return new char[](stringUtil.subString(str, 0, i))
+	}
+
+	// TODO: needs to parse RESPONSE and REQUEST
+	// Currently it only handles REQUESTs
+	HTTPMessage HTTPUtil:parseHTTPRequest(char buf[]) {
+		HTTPMessage httpMessage = new HTTPMessage()
+		int j = 0
+		char aux[]
+		char aux2[]
+		// out.println("   buffer- $(buf)")
+
+		for (int i=0; i<buf.arrayLength; i++) {
+			if (buf[i] == "\n") {
+				aux = stringUtil.subString(buf, j, (i-j)+1)
+				// out.println("   aux- $(aux)")
+				if (j == 0) {
+					httpMessage.command = getParam(aux, 0, false)
+					httpMessage.resource = getParam(aux, 1, false)
+					httpMessage.queryString = getQueryString(httpMessage.resource)
+					httpMessage.resource = getResource(httpMessage.resource)
+					httpMessage.version = getParam(aux, 2, false)
+				} else {
+					aux2 = getParam(aux, 0, false)
+					// out.println("   aux2- $(aux2)")
+					if (aux2 == "Connection:") {
+						httpMessage.connection = getParam(aux, 1, true)
+					}
+
+					if (aux2 == "Accept:") {
+						httpMessage.accept = getParam(aux, 1, true)
+					}
+
+					if (aux2 == "User-Agent:") {
+						httpMessage.userAgent = getParam(aux, 1, true).trim()
+						// out.println("   User agent- $(httpMessage.userAgent)")
+					}
+					
+					if (aux2 == "Accept-Encoding:") {
+						httpMessage.acceptEncoding = getParam(aux, 1, true)
+					}
+					
+					if (aux2 == "Accept-Language:") {
+						httpMessage.acceptLanguage = getParam(aux, 1, true)
+					}
+
+					if (aux2 == "Content-Length:") {
+						char cLength[] = stringUtil.trim(getParam(aux, 1, true))
+
+						if (stringUtil.isNumeric(cLength)) {
+							httpMessage.contentLength = iu.intFromString(cLength)
+						}							
+					}
+
+					//TODO cache information
+				}
+
+				j = i + 1
+			}
+		}
+
+		return httpMessage
+	}
+
+	bool HTTPUtil:exists(char resource[]) {
+
+		if (fileSystem.exists(resource)) {
+
+			if (fileSystem.getInfo(resource).type == FileInfo.TYPE_DIR) {
+				return false
+			} else {
+				return true
+			}
+			
+		}
+
+		return false
+	}
+}
+
+
+	
